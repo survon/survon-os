@@ -7,6 +7,8 @@
 
 set -e  # Exit on error.
 
+# Version info
+INSTALLER_VERSION="1.0.1"
 INSTALLER_URL="https://raw.githubusercontent.com/survon/survon-os/master/scripts/install.sh"
 
 # Check for updates before proceeding
@@ -256,7 +258,7 @@ EOF
   # Create boot selector script
   cat > $HOME/boot_selector.sh << 'EOF'
 #!/bin/bash
-# boot_selector.sh - DOS-style boot interrupt system for Survon OS
+# boot_selector.sh - Simple reliable boot selector
 
 clear
 echo "========================================="
@@ -267,59 +269,38 @@ echo "Starting Survon Runtime in 5 seconds..."
 echo ""
 echo "Press [S] for Survon OS Menu"
 echo "Press [M] for Maintenance Mode"
-echo "Press [ANY OTHER KEY] to boot immediately"
 echo ""
 
-COUNTER=50
-BOOT_MODE="runtime"
-
-# Use timeout with simpler key detection
-timeout 5 bash -c '
-while true; do
-    if read -r -s -n 1 -t 0.1 key; then
-        echo "$key"
-        exit 0
-    fi
-done
-'
-key=$?
-
-# Check what key was pressed (if any)
-if [ $? -eq 0 ]; then
-    key=$(timeout 0.1 cat)
+# Simple 5 second timeout with single key detection
+if read -r -s -n 1 -t 5 key; then
     case "$key" in
         "s"|"S")
-            BOOT_MODE="menu"
+            clear
+            echo "Entering Survon OS Menu..."
+            cd /home/survon
+            /home/survon/survon.sh
+            # When survon.sh exits, exit to bash
+            exit 0
             ;;
         "m"|"M")
-            BOOT_MODE="maintenance"
+            clear
+            echo "Maintenance Mode"
+            echo "=============="
+            echo "Type 'survon.sh' for menu, 'runtime-base-rust' for app"
+            echo ""
+            exit 0
             ;;
         *)
-            BOOT_MODE="runtime"
+            # Any other key - boot immediately
             ;;
     esac
 fi
 
+# Default: boot into runtime
 clear
-
-case $BOOT_MODE in
-    "runtime")
-        echo "Starting Survon Runtime..."
-        cd /home/survon
-        exec /usr/local/bin/runtime-base-rust
-        ;;
-    "menu")
-        echo "Entering Survon OS Menu..."
-        cd /home/survon
-        exec /home/survon/survon.sh
-        ;;
-    "maintenance")
-        echo "Maintenance Mode"
-        echo "=============="
-        echo "Type 'survon.sh' for menu, 'runtime-base-rust' for app"
-        echo ""
-        ;;
-esac
+echo "Starting Survon Runtime..."
+cd /home/survon
+exec /usr/local/bin/runtime-base-rust
 EOF
   chmod +x $HOME/boot_selector.sh
 }
@@ -362,8 +343,12 @@ if [ -z "$SKIP_UPDATE_CHECK" ]; then
 fi
 
 # Ensure installer is saved locally for survon.sh to use
-if [ ! -f "$HOME/install.sh" ] || [ "$0" != "$HOME/install.sh" ]; then
-  echo "Saving installer to home directory..."
+if [ ! -f "$HOME/install.sh" ]; then
+  echo "Downloading installer to home directory..."
+  curl -L "$INSTALLER_URL" -o "$HOME/install.sh"
+  chmod +x "$HOME/install.sh"
+elif [ "$0" != "$HOME/install.sh" ] && [ "$0" != "bash" ]; then
+  # If running from somewhere else (not piped), copy it
   cp "$0" "$HOME/install.sh"
   chmod +x "$HOME/install.sh"
 fi
