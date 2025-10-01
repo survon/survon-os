@@ -7,6 +7,63 @@
 
 set -e  # Exit on error.
 
+INSTALLER_URL="https://raw.githubusercontent.com/survon/survon-os/master/scripts/install.sh"
+
+# Check for updates before proceeding
+check_installer_updates() {
+  echo "Checking for installer updates..."
+
+  # Download latest installer to temp file
+  if curl -s -L "$INSTALLER_URL" -o /tmp/install_latest.sh 2>/dev/null; then
+    # Calculate hashes
+    if command -v sha256sum >/dev/null 2>&1; then
+      current_hash=$(sha256sum "$0" | cut -d' ' -f1)
+      latest_hash=$(sha256sum /tmp/install_latest.sh | cut -d' ' -f1)
+
+      if [ "$current_hash" != "$latest_hash" ]; then
+        echo "================================================"
+        echo "A newer version of the installer is available."
+        echo "Current hash: ${current_hash:0:8}..."
+        echo "Latest hash:  ${latest_hash:0:8}..."
+        echo "================================================"
+        echo ""
+        read -p "Update and run the latest installer? (y/n): " update_choice
+
+        if [ "$update_choice" = "y" ] || [ "$update_choice" = "Y" ]; then
+          echo "Updating installer..."
+          cp /tmp/install_latest.sh ~/install.sh
+          chmod +x ~/install.sh
+          echo "Installer updated. Restarting with new version..."
+          exec ~/install.sh "$@"
+        else
+          echo "Continuing with current installer version..."
+        fi
+      else
+        echo "You have the latest installer version."
+      fi
+    else
+      # Fallback if sha256sum not available - just check file size
+      current_size=$(stat -c%s "$0" 2>/dev/null || stat -f%z "$0" 2>/dev/null || echo "0")
+      latest_size=$(stat -c%s /tmp/install_latest.sh 2>/dev/null || stat -f%z /tmp/install_latest.sh 2>/dev/null || echo "1")
+
+      if [ "$current_size" != "$latest_size" ]; then
+        echo "Installer may be outdated (size difference detected)."
+        read -p "Download latest version? (y/n): " update_choice
+
+        if [ "$update_choice" = "y" ] || [ "$update_choice" = "Y" ]; then
+          cp /tmp/install_latest.sh ~/install.sh
+          chmod +x ~/install.sh
+          exec ~/install.sh "$@"
+        fi
+      fi
+    fi
+
+    rm -f /tmp/install_latest.sh
+  else
+    echo "Could not check for updates (offline mode). Continuing..."
+  fi
+}
+
 # Parse flags (skip per step)
 SKIP_APT_UPDATE=0
 SKIP_INSTALL_DEPS=0
@@ -17,6 +74,7 @@ SKIP_FETCH_BINARY=0  # New step for binary download
 SKIP_FETCH_SURVON_SH=0
 SKIP_SET_CRONTAB=0
 SKIP_CLEANUP=0
+SKIP_UPDATE_CHECK=0
 
 DEFAULT_MODEL_URL="https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/Phi-3-mini-4k-instruct-Q3_K_S.gguf"
 DEFAULT_MODEL_NAME="phi3-mini.gguf"
@@ -34,6 +92,7 @@ for arg in "$@"; do
     --skip-fetch-survon-sh) SKIP_FETCH_SURVON_SH=1 ;;
     --skip-set-crontab) SKIP_SET_CRONTAB=1 ;;
     --skip-cleanup) SKIP_CLEANUP=1 ;;
+    --skip-update-check) SKIP_UPDATE_CHECK=1 ;;
   esac
 done
 
@@ -296,6 +355,18 @@ cleanup() {
 
 # Controller (pipeline; execute or skip each step with spinner for non-interactive)
 echo "Starting installation..."
+
+# Check for updates first (unless explicitly skipped)
+if [ -z "$SKIP_UPDATE_CHECK" ]; then
+  check_installer_updates "$@"
+fi
+
+# Ensure installer is saved locally for survon.sh to use
+if [ ! -f "$HOME/install.sh" ] || [ "$0" != "$HOME/install.sh" ]; then
+  echo "Saving installer to home directory..."
+  cp "$0" "$HOME/install.sh"
+  chmod +x "$HOME/install.sh"
+fi
 
 echo "Step 1 - Update Unix System: "
 if [ $SKIP_APT_UPDATE -eq 0 ]; then
