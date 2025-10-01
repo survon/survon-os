@@ -206,31 +206,40 @@ echo "========================================="
 echo ""
 echo "Starting Survon Runtime in 5 seconds..."
 echo ""
-echo "Press [SPACE] for Survon OS Menu"
+echo "Press [S] for Survon OS Menu"
 echo "Press [M] for Maintenance Mode"
+echo "Press [ANY OTHER KEY] to boot immediately"
 echo ""
 
 COUNTER=50
 BOOT_MODE="runtime"
 
-while [ $COUNTER -gt 0 ]; do
-    printf "\rBooting in %.1f seconds... " $(echo "scale=1; $COUNTER/10" | bc)
-
+# Use timeout with simpler key detection
+timeout 5 bash -c '
+while true; do
     if read -r -s -n 1 -t 0.1 key; then
-        case "$key" in
-            " ")
-                BOOT_MODE="menu"
-                break
-                ;;
-            "m"|"M")
-                BOOT_MODE="maintenance"
-                break
-                ;;
-        esac
+        echo "$key"
+        exit 0
     fi
-
-    let COUNTER=COUNTER-1
 done
+'
+key=$?
+
+# Check what key was pressed (if any)
+if [ $? -eq 0 ]; then
+    key=$(timeout 0.1 cat)
+    case "$key" in
+        "s"|"S")
+            BOOT_MODE="menu"
+            ;;
+        "m"|"M")
+            BOOT_MODE="maintenance"
+            ;;
+        *)
+            BOOT_MODE="runtime"
+            ;;
+    esac
+fi
 
 clear
 
