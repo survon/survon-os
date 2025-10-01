@@ -7,7 +7,8 @@ while true; do
   echo "2. Manage configs/env vars"
   echo "3. Update runtime-base-rust binary"
   echo "4. Launch runtime-base-rust"
-  echo "5. Exit"
+  echo "5. Module Manager"
+  echo "6. Exit"
   read -p "Select: " choice
 
   case $choice in
@@ -51,10 +52,14 @@ while true; do
        fi
        ;;
     4) # Launch Rust TUI
-       cd /home/survon  # CRITICAL: Must be in this directory for relative bundled models path to work
+       # Change to home directory where models are expected
+       cd /home/survon
        /usr/local/bin/runtime-base-rust
        ;;
-    5) exit 0 ;;
+    5) # Module Manager
+       bash /home/survon/module_manager.sh
+       ;;
+    6) exit 0 ;;
     *) echo "Invalid." ;;
   esac
 done

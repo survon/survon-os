@@ -75,7 +75,12 @@ download_runtime() {
   rm -rf $HOME/runtime-base-rust  # Clean old if exists
   mv $HOME/runtime-base-rust-master $HOME/runtime-base-rust
   rm runtime-base-rust.tar.gz
-  cd $HOME/runtime-base-rust
+
+  # Copy the wasteland modules to the home directory where the binary expects them
+  if [ -d "$HOME/runtime-base-rust/wasteland" ]; then
+    cp -r $HOME/runtime-base-rust/wasteland $HOME/
+    echo "Copied default modules to $HOME/wasteland/modules/"
+  fi
 }
 
 # Step 5: Model selection/download/set env
@@ -143,11 +148,51 @@ fetch_binary() {
   echo "Binary installed to /usr/local/bin/runtime-base-rust"
 }
 
-# Step 7: Fetch survon.sh
+# Step 7: Fetch survon.sh and create module manager
 fetch_survon_sh() {
   curl -O https://raw.githubusercontent.com/survon/survon-os/master/scripts/survon.sh
   mv survon.sh $HOME/survon.sh
   chmod +x $HOME/survon.sh
+
+  # Create module_manager.sh
+  cat > $HOME/module_manager.sh << 'EOF'
+#!/bin/bash
+MODULES_DIR="/home/survon/wasteland/modules"
+mkdir -p "$MODULES_DIR"
+
+show_installed_modules() {
+    echo "=== Installed Modules ==="
+    if [ -d "$MODULES_DIR" ]; then
+        for module_dir in "$MODULES_DIR"/*; do
+            if [ -d "$module_dir" ] && [ -f "$module_dir/config.yml" ]; then
+                module_name=$(basename "$module_dir")
+                desc=$(grep "description:" "$module_dir/config.yml" 2>/dev/null | cut -d':' -f2- | sed 's/^ *//')
+                [ -z "$desc" ] && desc="No description"
+                echo " [$module_name] - $desc"
+            fi
+        done
+    fi
+    echo ""
+}
+
+while true; do
+    echo "========================================"
+    echo "       Survon Module Manager"
+    echo "========================================"
+    echo "1. Show installed modules"
+    echo "2. Back to main menu"
+    echo ""
+    read -p "Select option: " choice
+
+    case $choice in
+        1) show_installed_modules; read -p "Press Enter to continue..." ;;
+        2) exit 0 ;;
+        *) echo "Invalid option." ;;
+    esac
+    clear
+done
+EOF
+  chmod +x $HOME/module_manager.sh
 
   # Create boot selector script
   cat > $HOME/boot_selector.sh << 'EOF'
