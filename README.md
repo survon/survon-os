@@ -36,9 +36,30 @@ curl -sSL https://raw.githubusercontent.com/survon/survon-os/master/scripts/inst
 - Reboot: `sudo reboot` for menu.
 
 ## Usage
-- Menu auto-starts: Manage env vars (e.g., edit LLM_MODEL_NAME), update app, launch TUI.
+- Menu auto-starts: Manage env vars (e.g., LLM_MODEL_NAME, DEBUG), update binary from releases, launch TUI (`/usr/local/bin/runtime-base-rust`).
 - In Rust: Use `std::env::var("LLM_MODEL_NAME").unwrap_or("phi3-mini.gguf".to_string())` for model path (assumption disclosed: Based on prior chat; verify in main.rs).
 - Test LLM: `./bundled/llama-cli --model bundled/models/${LLM_MODEL_NAME:-phi3-mini.gguf} ...` (from README.md).
+
+## Advanced Configuration
+
+### Debug Logging
+The runtime supports debug logging via the DEBUG environment variable. To enable:
+
+**Via survon.sh menu:**
+1. Select option 2 (Manage configs/env vars)
+2. Set ENV_VAR: `DEBUG`
+3. Value: `true`
+4. Launch runtime (option 4)
+
+**Or modify survon.sh directly:**
+Edit option 4 in `/home/survon/survon.sh`:
+```bash
+4) cd /home/survon
+   DEBUG=true /usr/local/bin/runtime-base-rust
+   ;;
+```
+
+Debug logs are written to `./logs/debug.log` (cleared on each startup).
 
 ## License
 MIT License. See [LICENSE](./LICENSE).
