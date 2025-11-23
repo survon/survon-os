@@ -120,7 +120,13 @@ apt_update() {
 
 # Step 2: Install deps (minimal for binary execution)
 install_deps() {
-  sudo apt install -y curl bc > /dev/null 2>&1  # curl for downloads, bc for boot timer
+  sudo apt-get install -y \
+      curl \
+      bc \
+      bluez \
+      libbluetooth-dev \
+      libdbus-1-dev \
+      pkg-config > /dev/null 2>&1
 }
 
 # Step 3: Install Rustup (optional, skipped if binary used)
