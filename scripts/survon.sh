@@ -3,11 +3,11 @@
 # Menu loop
 while true; do
   echo "Survon OS Menu"
-  echo "1. Run Installer"
+  echo "1. Re-install Latest Survon OS"
   echo "2. Manage configs/env vars"
-  echo "3. Update runtime-base-rust binary"
-  echo "4. Launch runtime-base-rust"
-  echo "5. Module Manager"
+  echo "3. Update Survon Runtime"
+  echo "4. Launch Survon Runtime"
+  echo "5. Wasteland Module Manager"
   echo "6. Exit"
   read -p "Select: " choice
 
