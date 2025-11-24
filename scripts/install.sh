@@ -126,6 +126,7 @@ install_deps() {
       bluez \
       libbluetooth-dev \
       libdbus-1-dev \
+      libasound2-dev \
       pkg-config > /dev/null 2>&1
 }
 
