@@ -357,10 +357,8 @@ cleanup() {
 # Controller (pipeline; execute or skip each step with spinner for non-interactive)
 echo "Starting installation..."
 
-# Check for updates first (unless explicitly skipped)
-if [ -z "$SKIP_UPDATE_CHECK" ]; then
-  check_installer_updates "$@"
-fi
+# Check for updates first
+check_installer_updates "$@"
 
 # Ensure installer is saved locally for survon.sh to use
 if [ ! -f "$HOME/install.sh" ]; then
