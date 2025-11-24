@@ -13,11 +13,17 @@ INSTALLER_URL="https://raw.githubusercontent.com/survon/survon-os/master/scripts
 
 # Check for updates before proceeding
 check_installer_updates() {
+  # If running via pipe, always use latest version
+  if [ "$0" = "bash" ] || [ "$0" = "sh" ] || [ "$0" = "-bash" ]; then
+    echo "Running via curl | bash - using latest version automatically."
+    return 0
+  fi
+
   echo "Checking for installer updates..."
 
   # Download latest installer to temp file
   if curl -s -L "$INSTALLER_URL" -o /tmp/install_latest.sh 2>/dev/null; then
-    # Calculate hashes
+    # Calculate hashes only if running from a file
     if command -v sha256sum >/dev/null 2>&1; then
       current_hash=$(sha256sum "$0" | cut -d' ' -f1)
       latest_hash=$(sha256sum /tmp/install_latest.sh | cut -d' ' -f1)
@@ -62,7 +68,10 @@ check_installer_updates() {
 
     rm -f /tmp/install_latest.sh
   else
-    echo "Could not check for updates (offline mode). Continuing..."
+    echo "================================================"
+    echo "Could not fetch updates (offline or network issue)."
+    echo "Using cached local version..."
+    echo "================================================"
   fi
 }
 
@@ -232,8 +241,8 @@ fetch_survon_sh() {
 MODULES_DIR="/home/survon/modules/wasteland"
 mkdir -p "$MODULES_DIR"
 
-show_installed_modules() {
-    echo "=== Installed Modules ==="
+show_installed_wasteland_modules() {
+    echo "=== Installed Wasteland Modules ==="
     if [ -d "$MODULES_DIR" ]; then
         for module_dir in "$MODULES_DIR"/*; do
             if [ -d "$module_dir" ] && [ -f "$module_dir/config.yml" ]; then
@@ -249,15 +258,15 @@ show_installed_modules() {
 
 while true; do
     echo "========================================"
-    echo "       Survon Module Manager"
+    echo "    Survon Wasteland Module Manager     "
     echo "========================================"
-    echo "1. Show installed modules"
+    echo "1. Show installed Wasteland modules"
     echo "2. Back to main menu"
     echo ""
     read -p "Select option: " choice
 
     case $choice in
-        1) show_installed_modules; read -p "Press Enter to continue..." ;;
+        1) show_installed_wasteland_modules; read -p "Press Enter to continue..." ;;
         2) exit 0 ;;
         *) echo "Invalid option." ;;
     esac
