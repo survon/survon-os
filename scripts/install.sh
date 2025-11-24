@@ -144,10 +144,14 @@ download_runtime() {
   mv $HOME/runtime-base-rust-master $HOME/runtime-base-rust
   rm runtime-base-rust.tar.gz
 
-  # Copy the wasteland modules to the home directory where the binary expects them
-  if [ -d "$HOME/runtime-base-rust/wasteland" ]; then
-    cp -r $HOME/runtime-base-rust/wasteland $HOME/
-    echo "Copied default modules to $HOME/wasteland/modules/"
+  if [ -d "$HOME/runtime-base-rust/modules" ]; then
+    # Create modules directory if it doesn't exist
+    mkdir -p $HOME/modules
+
+    # Copy core and wasteland, overwriting conflicts but preserving user additions
+    cp -r $HOME/runtime-base-rust/modules/* $HOME/modules/
+
+    echo "Copied modules to $HOME/modules/"
   fi
 }
 
@@ -225,7 +229,7 @@ fetch_survon_sh() {
   # Create module_manager.sh
   cat > $HOME/module_manager.sh << 'EOF'
 #!/bin/bash
-MODULES_DIR="/home/survon/wasteland/modules"
+MODULES_DIR="/home/survon/modules/wasteland"
 mkdir -p "$MODULES_DIR"
 
 show_installed_modules() {
