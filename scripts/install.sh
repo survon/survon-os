@@ -78,6 +78,7 @@ check_installer_updates() {
 # Parse flags (skip per step)
 SKIP_APT_UPDATE=0
 SKIP_INSTALL_DEPS=0
+SKIP_BLE_CONFIG=0
 SKIP_INSTALL_RUSTUP=0
 SKIP_DOWNLOAD_RUNTIME=0
 SKIP_MODEL_SELECTION=0
@@ -96,6 +97,7 @@ for arg in "$@"; do
   case $arg in
     --skip-apt-update) SKIP_APT_UPDATE=1 ;;
     --skip-install-deps) SKIP_INSTALL_DEPS=1 ;;
+    --skip-ble-config) SKIP_BLE_CONFIG=1 ;;
     --skip-install-rustup) SKIP_INSTALL_RUSTUP=1 ;;
     --skip-download-runtime) SKIP_DOWNLOAD_RUNTIME=1 ;;
     --skip-model-selection) SKIP_MODEL_SELECTION=1 ;;
@@ -139,13 +141,174 @@ install_deps() {
       pkg-config > /dev/null 2>&1
 }
 
-# Step 3: Install Rustup (optional, skipped if binary used)
+# Step 3: Make sure the Bluetooth LE dongle is in auto-connect mode so we
+# can detect any BLE Survon field units
+#!/bin/bash
+
+# Step 3: Configure BLE dongle for auto-connect mode
+#!/bin/bash
+
+# Step 3: Configure BLE dongle for auto-connect mode
+configure_ble_dongle() {
+  echo "Detecting and configuring BLE dongle (Bluefruit LE Friend)..."
+
+  # Find BLE dongle port (ttyUSB* or ttyACM* on Raspberry Pi)
+  BLE_PORT=$(ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | head -n1)
+
+  if [ -z "$BLE_PORT" ]; then
+    echo "No BLE dongle detected. Skipping auto-connect configuration."
+    return 0
+  fi
+
+  echo "Found dongle at $BLE_PORT"
+
+  # Prompt user to check physical switch
+  echo ""
+  echo "============================================"
+  echo "IMPORTANT: Check your BLE dongle's MODE switch"
+  echo "============================================"
+  echo "The physical toggle switch MUST be set to CMD (Command Mode)"
+  echo "- If set to DATA mode, configuration will fail"
+  echo "- Look for a small switch on the dongle PCB"
+  echo "- Set it to the CMD position"
+  echo ""
+  read -p "Press Enter once the switch is set to CMD mode..." < /dev/tty
+  echo ""
+
+  # Check if Python and pyserial are available
+  if ! command -v python3 &> /dev/null; then
+    echo "Python3 not found. Installing..."
+    sudo apt-get install -y python3 python3-pip > /dev/null 2>&1
+  fi
+
+  if ! python3 -c "import serial" 2>/dev/null; then
+    echo "Installing pyserial..."
+    sudo apt-get install -y python3-serial > /dev/null 2>&1
+  fi
+
+  # Create temporary Python script to configure dongle
+  cat > /tmp/configure_ble.py << 'PYEOF'
+#!/usr/bin/env python3
+import serial
+import time
+import sys
+
+def send_at_command(ser, command, wait=0.5):
+    """Send AT command and return response"""
+    ser.write(f"{command}\r\n".encode())
+    time.sleep(wait)
+    response = ""
+    if ser.in_waiting:
+        response = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
+    return response.strip()
+
+def configure_dongle(port):
+    """Configure BLE dongle for auto-connect mode"""
+    try:
+        # Open serial with hardware flow control
+        ser = serial.Serial(
+            port=port,
+            baudrate=9600,
+            timeout=1,
+            rtscts=True  # Hardware flow control
+        )
+
+        time.sleep(2)  # Let device settle
+
+        # Clear buffer
+        if ser.in_waiting:
+            ser.read(ser.in_waiting)
+
+        print("Testing connection...")
+        response = send_at_command(ser, "ATI")
+
+        if "BLEFRIEND" not in response:
+            print("")
+            print("=" * 50)
+            print("ERROR: Device not responding correctly")
+            print("=" * 50)
+            print("Possible issues:")
+            print("1. MODE switch is in DATA position (must be CMD)")
+            print("2. Wrong baud rate or connection issue")
+            print("3. Dongle needs to be unplugged and replugged")
+            print("")
+            print(f"Response received: {response[:100]}")
+            print("")
+            print("Please:")
+            print("- Verify MODE switch is set to CMD")
+            print("- Unplug and replug the dongle")
+            print("- Run this installer again")
+            print("=" * 50)
+            return False
+
+        print("Device detected. Configuring auto-connect mode...")
+
+        # Enable auto-connect mode
+        # AT+GAPCONNECTABLE=1 enables advertising/connectable
+        response = send_at_command(ser, "AT+GAPCONNECTABLE=1")
+        if "OK" not in response and "ERROR" not in response:
+            print(f"Warning: Unexpected response to GAPCONNECTABLE: {response}")
+
+        # Set device to advertise immediately on power-up
+        response = send_at_command(ser, "AT+GAPADVERTISING=1")
+        if "OK" not in response and "ERROR" not in response:
+            print(f"Warning: Unexpected response to GAPADVERTISING: {response}")
+
+        # Reset to apply settings
+        print("Saving settings and resetting dongle...")
+        send_at_command(ser, "ATZ", wait=3)
+
+        ser.close()
+        print("BLE dongle configured successfully for auto-connect mode.")
+        return True
+
+    except serial.SerialException as e:
+        print(f"Error configuring dongle: {e}")
+        return False
+    except Exception as e:
+        print(f"Unexpected error: {e}")
+        return False
+
+if __name__ == "__main__":
+    if len(sys.argv) < 2:
+        print("Usage: configure_ble.py <port>")
+        sys.exit(1)
+
+    port = sys.argv[1]
+    success = configure_dongle(port)
+    sys.exit(0 if success else 1)
+PYEOF
+
+  # Run the configuration script
+  python3 /tmp/configure_ble.py "$BLE_PORT"
+
+  if [ $? -eq 0 ]; then
+    echo "BLE dongle configured for auto-connect mode."
+    echo ""
+    echo "============================================"
+    echo "IMPORTANT: Switch dongle back to DATA mode"
+    echo "============================================"
+    echo "Now that configuration is complete:"
+    echo "- Toggle the MODE switch back to DATA position"
+    echo "- This allows normal UART communication"
+    echo ""
+    read -p "Press Enter once switched to DATA mode..." < /dev/tty
+    echo "Configuration complete!"
+  else
+    echo "Failed to configure BLE dongle. Manual configuration may be required."
+  fi
+
+  # Cleanup
+  rm -f /tmp/configure_ble.py
+}
+
+# Step 4: Install Rustup (optional, skipped if binary used)
 install_rustup() {
   curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y > /dev/null 2>&1
   source $HOME/.cargo/env
 }
 
-# Step 4: Download runtime-base-rust (for source, if needed)
+# Step 5: Download runtime-base-rust (for source, if needed)
 download_runtime() {
   curl -L https://github.com/survon/runtime-base-rust/archive/master.tar.gz -o runtime-base-rust.tar.gz
   tar -xzf runtime-base-rust.tar.gz -C $HOME
@@ -164,7 +327,7 @@ download_runtime() {
   fi
 }
 
-# Step 5: Model selection/download/set env
+# Step 6: Model selection/download/set env
 interactive_model_selection() {
   # Create models directory in home - where the app will likely look for them
   MODEL_DIR="$HOME/bundled/models"
@@ -207,7 +370,7 @@ interactive_model_selection() {
   echo "Model downloaded successfully to: $MODEL_DIR/$MODEL_NAME"
 }
 
-# Step 6: Fetch pre-built binary from GitHub releases
+# Step 7: Fetch pre-built binary from GitHub releases
 fetch_binary() {
   # Create bin directory if it doesn't exist
   sudo mkdir -p /usr/local/bin
@@ -229,7 +392,7 @@ fetch_binary() {
   echo "Binary installed to /usr/local/bin/runtime-base-rust"
 }
 
-# Step 7: Fetch survon.sh and create module manager
+# Step 8: Fetch survon.sh and create module manager
 fetch_survon_sh() {
   curl -O https://raw.githubusercontent.com/survon/survon-os/master/scripts/survon.sh
   mv survon.sh $HOME/survon.sh
@@ -389,7 +552,14 @@ else
   echo "$STR_SKIP_RE_FLAG --skip-install-deps"
 fi
 
-echo "Step 3 - Update Rust: "
+echo "Step 3 - Configure BLE Dongle: "
+if [ $SKIP_BLE_CONFIG -eq 0 ]; then
+  configure_ble_dongle
+else
+  echo "$STR_SKIP_RE_FLAG --skip-ble-config"
+fi
+
+echo "Step 4 - Update Rust: "
 if [ $SKIP_INSTALL_RUSTUP -eq 0 ]; then
   echo -n "[Installing]... "
   install_rustup & spinner $!
@@ -398,7 +568,7 @@ else
   echo "$STR_SKIP_RE_FLAG --skip-install-rustup"
 fi
 
-echo "Step 4 - Download Survon Runtime: "
+echo "Step 5 - Download Survon Runtime: "
 if [ $SKIP_DOWNLOAD_RUNTIME -eq 0 ]; then
   echo -n "[Downloading]... "
   download_runtime & spinner $!
@@ -408,7 +578,7 @@ else
 fi
 
 # TODO skipping model selection doesnt make sense unless we choose one for the user here
-echo "Step 5 - Select Survon AI Model: "
+echo "Step 6 - Select Survon AI Model: "
 if [ $SKIP_MODEL_SELECTION -eq 0 ]; then
   interactive_model_selection
   echo "Done."
@@ -416,7 +586,7 @@ else
   echo "$STR_SKIP_RE_FLAG --skip-model-selection. Applying default model $MODEL_NAME"
 fi
 
-echo "Step 6 - Fetch Pre-built Binary: "
+echo "Step 7 - Fetch Pre-built Binary: "
 if [ $SKIP_FETCH_BINARY -eq 0 ]; then
   echo -n "[Fetching]... "
   fetch_binary & spinner $!
@@ -425,7 +595,7 @@ else
   echo "$STR_SKIP_RE_FLAG --skip-fetch-binary"
 fi
 
-echo "Step 7 - Fetch Latest Survon Launcher: "
+echo "Step 8 - Fetch Latest Survon Launcher: "
 if [ $SKIP_FETCH_SURVON_SH -eq 0 ]; then
   echo -n "[Fetching]... "
   fetch_survon_sh & spinner $!
@@ -434,7 +604,7 @@ else
   echo "$STR_SKIP_RE_FLAG --skip-fetch-survon-sh"
 fi
 
-echo "Step 8 - Schedule Launcher: "
+echo "Step 9 - Schedule Launcher: "
 if [ $SKIP_SET_CRONTAB -eq 0 ]; then
   echo -n "[Setting Crontab]... "
   set_crontab & spinner $!
@@ -443,7 +613,7 @@ else
   echo "$STR_SKIP_RE_FLAG --skip-set-crontab"
 fi
 
-echo "Step 9 - Cleanup: "
+echo "Step 10 - Cleanup: "
 if [ $SKIP_CLEANUP -eq 0 ]; then
   echo -n "[Cleaning]... "
   cleanup & spinner $!
