@@ -90,6 +90,7 @@ SKIP_UPDATE_CHECK=0
 SKIP_BLUEZ_CONFIG=0
 SKIP_BLE_TEST=0
 SKIP_DBUS_PERMS=0
+SKIP_TERMINAL_COLORS=0
 
 DEFAULT_MODEL_URL="https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/Phi-3-mini-4k-instruct-Q3_K_S.gguf"
 DEFAULT_MODEL_NAME="phi3-mini.gguf"
@@ -110,6 +111,7 @@ for arg in "$@"; do
     --skip-dbus-perms) SKIP_DBUS_PERMS=1 ;;
     --skip-bluez-config) SKIP_BLUEZ_CONFIG=1 ;;
     --skip-ble-test) SKIP_BLE_TEST=1 ;;
+    --skip-terminal-colors) SKIP_TERMINAL_COLORS=1 ;;
 
     # unused
     --skip-ble-config) SKIP_BLE_CONFIG=1 ;;
@@ -227,6 +229,17 @@ configure_dbus_permissions() {
     <allow send_interface="org.bluez.Device1"/>
     <allow send_interface="org.bluez.AgentManager1"/>
     <allow send_interface="org.bluez.ProfileManager1"/>
+
+    <!-- Explicitly allow Properties methods -->
+    <allow send_destination="org.bluez" send_interface="org.freedesktop.DBus.Properties" send_member="Get"/>
+    <allow send_destination="org.bluez" send_interface="org.freedesktop.DBus.Properties" send_member="Set"/>
+    <allow send_destination="org.bluez" send_interface="org.freedesktop.DBus.Properties" send_member="GetAll"/>
+
+    <!-- Allow ObjectManager methods -->
+    <allow send_destination="org.bluez" send_interface="org.freedesktop.DBus.ObjectManager" send_member="GetManagedObjects"/>
+
+    <!-- Allow receiving signals from BlueZ -->
+    <allow receive_sender="org.bluez"/>
   </policy>
 </busconfig>
 EOF
@@ -261,6 +274,22 @@ download_runtime() {
 
     echo "Copied modules to $HOME/modules/"
   fi
+}
+
+configure_terminal_colors() {
+  echo "Configuring terminal for 256 colors..."
+
+  # Add TERM=xterm-256color to .bashrc if not already present
+  if ! grep -q "export TERM=xterm-256color" $HOME/.bashrc; then
+    echo "" >> $HOME/.bashrc
+    echo "# Enable 256 color support for terminal" >> $HOME/.bashrc
+    echo "export TERM=xterm-256color" >> $HOME/.bashrc
+  fi
+
+  # Also set it immediately for current session
+  export TERM=xterm-256color
+
+  echo "Terminal configured for 256 colors"
 }
 
 # Step 6: Model selection/download/set env
@@ -486,6 +515,15 @@ if [ $SKIP_INSTALL_DEPS -eq 0 ]; then
   echo "Done."
 else
   echo "$STR_SKIP_RE_FLAG --skip-install-deps"
+fi
+
+echo "Step 2.5 - Configure Terminal Colors: "
+if [ $SKIP_TERMINAL_COLORS -eq 0 ]; then
+  echo -n "[Configuring]... "
+  configure_terminal_colors & spinner $!
+  echo "Done."
+else
+  echo "$STR_SKIP_RE_FLAG --skip-terminal-colors"
 fi
 
 echo "Step 3 - Configure BlueZ for btleplug: "
