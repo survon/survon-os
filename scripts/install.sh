@@ -87,6 +87,8 @@ SKIP_FETCH_SURVON_SH=0
 SKIP_SET_CRONTAB=0
 SKIP_CLEANUP=0
 SKIP_UPDATE_CHECK=0
+SKIP_BLUEZ_CONFIG=0
+SKIP_BLE_TEST=0
 
 DEFAULT_MODEL_URL="https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/Phi-3-mini-4k-instruct-Q3_K_S.gguf"
 DEFAULT_MODEL_NAME="phi3-mini.gguf"
@@ -97,7 +99,6 @@ for arg in "$@"; do
   case $arg in
     --skip-apt-update) SKIP_APT_UPDATE=1 ;;
     --skip-install-deps) SKIP_INSTALL_DEPS=1 ;;
-    --skip-ble-config) SKIP_BLE_CONFIG=1 ;;
     --skip-install-rustup) SKIP_INSTALL_RUSTUP=1 ;;
     --skip-download-runtime) SKIP_DOWNLOAD_RUNTIME=1 ;;
     --skip-model-selection) SKIP_MODEL_SELECTION=1 ;;
@@ -105,7 +106,12 @@ for arg in "$@"; do
     --skip-fetch-survon-sh) SKIP_FETCH_SURVON_SH=1 ;;
     --skip-set-crontab) SKIP_SET_CRONTAB=1 ;;
     --skip-cleanup) SKIP_CLEANUP=1 ;;
+
+    --skip-ble-config) SKIP_BLE_CONFIG=1 ;;
+    # unused
     --skip-update-check) SKIP_UPDATE_CHECK=1 ;;
+    --skip-bluez-config) SKIP_BLUEZ_CONFIG=1 ;;
+    --skip-ble-test) SKIP_BLE_TEST=1 ;;
   esac
 done
 
@@ -132,174 +138,71 @@ apt_update() {
 # Step 2: Install deps (minimal for binary execution)
 install_deps() {
   sudo apt-get install -y \
-      curl \
-      bc \
-      bluez \
-      libbluetooth-dev \
-      libdbus-1-dev \
-      libasound2-dev \
-      pkg-config > /dev/null 2>&1
+        curl \
+        bc \
+        libasound2-dev \
+        pkg-config \
+        git \
+        bluez \
+        bluez-tools \
+        libbluetooth-dev \
+        libdbus-1-dev \
+        libglib2.0-dev \
+        libical-dev \
+        libreadline-dev > /dev/null 2>&1
 }
 
-# Step 3: Make sure the Bluetooth LE dongle is in auto-connect mode so we
-# can detect any BLE Survon field units
-#!/bin/bash
+configure_bluez_for_btleplug() {
+  echo "Configuring BlueZ for btleplug..."
 
-# Step 3: Configure BLE dongle for auto-connect mode
-#!/bin/bash
+  # Check BlueZ version
+  BLUEZ_VERSION=$(bluetoothctl --version 2>&1 | grep -oP '\d+\.\d+' | head -1 || echo "0.0")
+  echo "Detected BlueZ version: $BLUEZ_VERSION"
 
-# Step 3: Configure BLE dongle for auto-connect mode
-configure_ble_dongle() {
-  echo "Detecting and configuring BLE dongle (Bluefruit LE Friend)..."
+  # Enable experimental features
+  echo "Enabling BlueZ experimental features..."
 
-  # Find BLE dongle port (ttyUSB* or ttyACM* on Raspberry Pi)
-  BLE_PORT=$(ls /dev/ttyUSB* /dev/ttyACM* 2>/dev/null | head -n1)
+  # Backup original config
+  sudo cp /lib/systemd/system/bluetooth.service /lib/systemd/system/bluetooth.service.backup 2>/dev/null || true
 
-  if [ -z "$BLE_PORT" ]; then
-    echo "No BLE dongle detected. Skipping auto-connect configuration."
-    return 0
+  # Add experimental flag if not present
+  if ! grep -q "ExecStart=.*--experimental" /lib/systemd/system/bluetooth.service 2>/dev/null; then
+    sudo sed -i 's|ExecStart=/usr/libexec/bluetooth/bluetoothd|ExecStart=/usr/libexec/bluetooth/bluetoothd --experimental|' \
+      /lib/systemd/system/bluetooth.service 2>/dev/null || \
+    sudo sed -i 's|ExecStart=/usr/lib/bluetooth/bluetoothd|ExecStart=/usr/lib/bluetooth/bluetoothd --experimental|' \
+      /lib/systemd/system/bluetooth.service 2>/dev/null || true
   fi
 
-  echo "Found dongle at $BLE_PORT"
+  # Reload and restart bluetooth
+  sudo systemctl daemon-reload
+  sudo systemctl restart bluetooth
 
-  # Prompt user to check physical switch
-  echo ""
-  echo "============================================"
-  echo "IMPORTANT: Check your BLE dongle's MODE switch"
-  echo "============================================"
-  echo "The physical toggle switch MUST be set to CMD (Command Mode)"
-  echo "- If set to DATA mode, configuration will fail"
-  echo "- Look for a small switch on the dongle PCB"
-  echo "- Set it to the CMD position"
-  echo ""
-  read -p "Press Enter once the switch is set to CMD mode..." < /dev/tty
-  echo ""
+  # Add user to bluetooth group
+  sudo usermod -a -G bluetooth $USER
 
-  # Check if Python and pyserial are available
-  if ! command -v python3 &> /dev/null; then
-    echo "Python3 not found. Installing..."
-    sudo apt-get install -y python3 python3-pip > /dev/null 2>&1
-  fi
+  echo "BlueZ configured. You may need to reboot for full effect."
+}
 
-  if ! python3 -c "import serial" 2>/dev/null; then
-    echo "Installing pyserial..."
-    sudo apt-get install -y python3-serial > /dev/null 2>&1
-  fi
+test_ble() {
+  echo "Testing BLE setup..."
 
-  # Create temporary Python script to configure dongle
-  cat > /tmp/configure_ble.py << 'PYEOF'
-#!/usr/bin/env python3
-import serial
-import time
-import sys
-
-def send_at_command(ser, command, wait=0.5):
-    """Send AT command and return response"""
-    ser.write(f"{command}\r\n".encode())
-    time.sleep(wait)
-    response = ""
-    if ser.in_waiting:
-        response = ser.read(ser.in_waiting).decode('utf-8', errors='ignore')
-    return response.strip()
-
-def configure_dongle(port):
-    """Configure BLE dongle for auto-connect mode"""
-    try:
-        # Open serial with hardware flow control
-        ser = serial.Serial(
-            port=port,
-            baudrate=9600,
-            timeout=1,
-            rtscts=True  # Hardware flow control
-        )
-
-        time.sleep(2)  # Let device settle
-
-        # Clear buffer
-        if ser.in_waiting:
-            ser.read(ser.in_waiting)
-
-        print("Testing connection...")
-        response = send_at_command(ser, "ATI")
-
-        if "BLEFRIEND" not in response:
-            print("")
-            print("=" * 50)
-            print("ERROR: Device not responding correctly")
-            print("=" * 50)
-            print("Possible issues:")
-            print("1. MODE switch is in DATA position (must be CMD)")
-            print("2. Wrong baud rate or connection issue")
-            print("3. Dongle needs to be unplugged and replugged")
-            print("")
-            print(f"Response received: {response[:100]}")
-            print("")
-            print("Please:")
-            print("- Verify MODE switch is set to CMD")
-            print("- Unplug and replug the dongle")
-            print("- Run this installer again")
-            print("=" * 50)
-            return False
-
-        print("Device detected. Configuring auto-connect mode...")
-
-        # Enable auto-connect mode
-        # AT+GAPCONNECTABLE=1 enables advertising/connectable
-        response = send_at_command(ser, "AT+GAPCONNECTABLE=1")
-        if "OK" not in response and "ERROR" not in response:
-            print(f"Warning: Unexpected response to GAPCONNECTABLE: {response}")
-
-        # Set device to advertise immediately on power-up
-        response = send_at_command(ser, "AT+GAPADVERTISING=1")
-        if "OK" not in response and "ERROR" not in response:
-            print(f"Warning: Unexpected response to GAPADVERTISING: {response}")
-
-        # Reset to apply settings
-        print("Saving settings and resetting dongle...")
-        send_at_command(ser, "ATZ", wait=3)
-
-        ser.close()
-        print("BLE dongle configured successfully for auto-connect mode.")
-        return True
-
-    except serial.SerialException as e:
-        print(f"Error configuring dongle: {e}")
-        return False
-    except Exception as e:
-        print(f"Unexpected error: {e}")
-        return False
-
-if __name__ == "__main__":
-    if len(sys.argv) < 2:
-        print("Usage: configure_ble.py <port>")
-        sys.exit(1)
-
-    port = sys.argv[1]
-    success = configure_dongle(port)
-    sys.exit(0 if success else 1)
-PYEOF
-
-  # Run the configuration script
-  python3 /tmp/configure_ble.py "$BLE_PORT"
-
-  if [ $? -eq 0 ]; then
-    echo "BLE dongle configured for auto-connect mode."
-    echo ""
-    echo "============================================"
-    echo "IMPORTANT: Switch dongle back to DATA mode"
-    echo "============================================"
-    echo "Now that configuration is complete:"
-    echo "- Toggle the MODE switch back to DATA position"
-    echo "- This allows normal UART communication"
-    echo ""
-    read -p "Press Enter once switched to DATA mode..." < /dev/tty
-    echo "Configuration complete!"
+  # Check if hci0 exists
+  if hciconfig hci0 2>/dev/null | grep -q "UP RUNNING"; then
+    echo "✅ hci0 is up and running"
   else
-    echo "Failed to configure BLE dongle. Manual configuration may be required."
+    echo "⚠️  hci0 not found, attempting to bring it up..."
+    sudo hciconfig hci0 up 2>/dev/null || echo "❌ Could not activate hci0"
   fi
 
-  # Cleanup
-  rm -f /tmp/configure_ble.py
+  # Check Bluetooth service
+  if systemctl is-active --quiet bluetooth; then
+    echo "✅ Bluetooth service is active"
+  else
+    echo "❌ Bluetooth service is not running"
+    sudo systemctl start bluetooth
+  fi
+
+  echo "BLE test complete"
 }
 
 # Step 4: Install Rustup (optional, skipped if binary used)
@@ -552,11 +455,21 @@ else
   echo "$STR_SKIP_RE_FLAG --skip-install-deps"
 fi
 
-echo "Step 3 - Configure BLE Dongle: "
-if [ $SKIP_BLE_CONFIG -eq 0 ]; then
-  configure_ble_dongle
+echo "Step 3 - Configure BlueZ for btleplug: "
+if [ $SKIP_BLUEZ_CONFIG -eq 0 ]; then
+  echo -n "[Configuring]... "
+  configure_bluez_for_btleplug & spinner $!
+  echo "Done."
 else
-  echo "$STR_SKIP_RE_FLAG --skip-ble-config"
+  echo "$STR_SKIP_RE_FLAG --skip-bluez-config"
+fi
+
+echo "Step 3.5 - Test BLE Setup: "
+if [ $SKIP_BLE_TEST -eq 0 ]; then
+  test_ble
+  echo "Done."
+else
+  echo "$STR_SKIP_RE_FLAG --skip-ble-test"
 fi
 
 echo "Step 4 - Update Rust: "
@@ -622,4 +535,23 @@ else
   echo "$STR_SKIP_RE_FLAG --skip-cleanup"
 fi
 
-echo "Survon OS installed. LLM_MODEL_NAME set to $MODEL_NAME. Reboot to start menu."
+echo "=========================================="
+echo "Survon OS installed successfully!"
+echo "=========================================="
+echo ""
+echo "IMPORTANT: You need to REBOOT for BLE changes to take effect"
+echo ""
+echo "After reboot:"
+echo "  - User will be in 'bluetooth' group"
+echo "  - BlueZ experimental features enabled"
+echo "  - BLE should work with btleplug"
+echo ""
+echo "If you still see DBus errors after reboot:"
+echo "  1. Check BlueZ version: bluetoothctl --version"
+echo "  2. Should be 5.50 or higher"
+echo "  3. Run: sudo systemctl status bluetooth"
+echo ""
+read -p "Reboot now? (y/n): " reboot_choice
+if [ "$reboot_choice" = "y" ] || [ "$reboot_choice" = "Y" ]; then
+  sudo reboot
+fi
