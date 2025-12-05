@@ -94,6 +94,7 @@ SKIP_TERMINAL_COLORS=0
 
 DEFAULT_MODEL_URL="https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/Phi-3-mini-4k-instruct-Q3_K_S.gguf"
 DEFAULT_MODEL_NAME="phi3-mini.gguf"
+
 MODEL_NAME=$DEFAULT_MODEL_NAME
 STR_SKIP_RE_FLAG="[Skipped]. Received flag"
 
@@ -217,29 +218,9 @@ configure_dbus_permissions() {
 <!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
  "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
 <busconfig>
-  <!-- Allow users in bluetooth group to access BlueZ -->
-  <policy group="bluetooth">
-    <allow send_destination="org.bluez"/>
-    <allow send_interface="org.bluez.GattCharacteristic1"/>
-    <allow send_interface="org.bluez.GattDescriptor1"/>
-    <allow send_interface="org.bluez.LEAdvertisingManager1"/>
-    <allow send_interface="org.freedesktop.DBus.ObjectManager"/>
-    <allow send_interface="org.freedesktop.DBus.Properties"/>
-    <allow send_interface="org.bluez.Adapter1"/>
-    <allow send_interface="org.bluez.Device1"/>
-    <allow send_interface="org.bluez.AgentManager1"/>
-    <allow send_interface="org.bluez.ProfileManager1"/>
-
-    <!-- Explicitly allow Properties methods -->
-    <allow send_destination="org.bluez" send_interface="org.freedesktop.DBus.Properties" send_member="Get"/>
-    <allow send_destination="org.bluez" send_interface="org.freedesktop.DBus.Properties" send_member="Set"/>
-    <allow send_destination="org.bluez" send_interface="org.freedesktop.DBus.Properties" send_member="GetAll"/>
-
-    <!-- Allow ObjectManager methods -->
-    <allow send_destination="org.bluez" send_interface="org.freedesktop.DBus.ObjectManager" send_member="GetManagedObjects"/>
-
-    <!-- Allow receiving signals from BlueZ -->
-    <allow receive_sender="org.bluez"/>
+  <policy user="survon">
+    <allow send_destination="*"/>
+    <allow receive_sender="*"/>
   </policy>
 </busconfig>
 EOF
@@ -293,36 +274,81 @@ configure_terminal_colors() {
 }
 
 # Step 6: Model selection/download/set env
+# Step 6: Model selection/download/set env
 interactive_model_selection() {
   # Create models directory in home - where the app will likely look for them
   MODEL_DIR="$HOME/bundled/models"
   mkdir -p "$MODEL_DIR"
   cd "$MODEL_DIR"
 
+  # Detect Pi model for recommendation
+  PI_MODEL=$(cat /proc/cpuinfo | grep "Model" | head -1 | awk -F': ' '{print $2}')
+  PI_RAM=$(free -m | awk 'NR==2{print $2}')
+
+  echo "========================================"
+  echo "Detected: $PI_MODEL"
+  echo "Available RAM: ${PI_RAM}MB"
+  echo "========================================"
+  echo ""
+
+  # Recommend based on hardware
+  if [ "$PI_RAM" -lt 2000 ]; then
+    echo "⚠️  RECOMMENDATION: Skip model download for Pi 3B"
+    echo "   Your system will use fast search-only mode (no LLM)"
+    echo "   This is perfect for 1GB RAM and gives instant responses"
+    echo ""
+  else
+    echo "✅ RECOMMENDATION: Download model for Pi 4/5"
+    echo "   Your system has enough RAM for the summarizer mode"
+    echo "   This gives humanized, natural language responses"
+    echo ""
+  fi
+
   echo "Select model:"
-  echo "1. phi3-mini.gguf (Q3_K_S quantized, ~1.3GB)"
-  echo "2. Custom"
+  echo "1. phi3-mini.gguf (Q3_K_S, ~1.3GB) - Recommended for Pi 4/5"
+  echo "2. Skip download (search-only mode) - Recommended for Pi 3B"
+  echo "3. Custom URL"
   read -p "Choice: " model_choice < /dev/tty
 
   if [ "$model_choice" == "1" ]; then
-    echo "Downloading Phi-3 model to $MODEL_DIR (this may take a while)..."
+    echo "Downloading Phi-3 Mini Q3_K_S to $MODEL_DIR..."
+    echo "This will take 5-10 minutes depending on your connection."
     curl -L -o "$MODEL_NAME" "$DEFAULT_MODEL_URL"
     if [ $? -ne 0 ]; then
       echo "Failed to download model. Check disk space and internet connection."
-      exit 1
+      echo "The system will fall back to search-only mode."
+    else
+      echo "Model downloaded successfully!"
+      # Update config to use summarizer mode
+      LLM_CONFIG="$HOME/modules/core/survon_llm/config.yml"
+      if [ -f "$LLM_CONFIG" ]; then
+        sed -i 's/model: "search"/model: "summarizer"/' "$LLM_CONFIG"
+        echo "Updated LLM config to use summarizer mode."
+      fi
     fi
   elif [ "$model_choice" == "2" ]; then
+    echo "Skipping model download - using search-only mode."
+    echo "This is the recommended configuration for Pi 3B."
+    # Don't download anything, config already defaults to "search"
+  elif [ "$model_choice" == "3" ]; then
     read -p "Enter URL to your model: " custom_url < /dev/tty
     MODEL_NAME=$(basename "$custom_url")
     echo "Downloading custom model to $MODEL_DIR..."
     curl -L -o "$MODEL_NAME" "$custom_url"
     if [ $? -ne 0 ]; then
       echo "Failed to download model."
-      exit 1
+      echo "The system will fall back to search-only mode."
+    else
+      echo "Custom model downloaded successfully!"
+      # Update config to use summarizer mode
+      LLM_CONFIG="$HOME/modules/core/survon_llm/config.yml"
+      if [ -f "$LLM_CONFIG" ]; then
+        sed -i 's/model: "search"/model: "summarizer"/' "$LLM_CONFIG"
+        echo "Updated LLM config to use summarizer mode."
+      fi
     fi
   else
-    echo "Invalid choice. Exiting."
-    exit 1
+    echo "Invalid choice. Defaulting to search-only mode."
   fi
 
   # Set environment variables for model location
@@ -332,7 +358,11 @@ interactive_model_selection() {
   echo "export LLM_MODEL_PATH=\"$MODEL_DIR/$MODEL_NAME\"" >> $HOME/.bashrc
   source $HOME/.bashrc
 
-  echo "Model downloaded successfully to: $MODEL_DIR/$MODEL_NAME"
+  if [ -f "$MODEL_DIR/$MODEL_NAME" ]; then
+    echo "Model ready at: $MODEL_DIR/$MODEL_NAME"
+  else
+    echo "No model installed - using search-only mode"
+  fi
 }
 
 # Step 7: Fetch pre-built binary from GitHub releases
