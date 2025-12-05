@@ -89,6 +89,7 @@ SKIP_CLEANUP=0
 SKIP_UPDATE_CHECK=0
 SKIP_BLUEZ_CONFIG=0
 SKIP_BLE_TEST=0
+SKIP_DBUS_PERMS=0
 
 DEFAULT_MODEL_URL="https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/Phi-3-mini-4k-instruct-Q3_K_S.gguf"
 DEFAULT_MODEL_NAME="phi3-mini.gguf"
@@ -106,12 +107,13 @@ for arg in "$@"; do
     --skip-fetch-survon-sh) SKIP_FETCH_SURVON_SH=1 ;;
     --skip-set-crontab) SKIP_SET_CRONTAB=1 ;;
     --skip-cleanup) SKIP_CLEANUP=1 ;;
-
-    --skip-ble-config) SKIP_BLE_CONFIG=1 ;;
-    # unused
-    --skip-update-check) SKIP_UPDATE_CHECK=1 ;;
+    --skip-dbus-perms) SKIP_DBUS_PERMS=1 ;;
     --skip-bluez-config) SKIP_BLUEZ_CONFIG=1 ;;
     --skip-ble-test) SKIP_BLE_TEST=1 ;;
+
+    # unused
+    --skip-ble-config) SKIP_BLE_CONFIG=1 ;;
+    --skip-update-check) SKIP_UPDATE_CHECK=1 ;;
   esac
 done
 
@@ -203,6 +205,37 @@ test_ble() {
   fi
 
   echo "BLE test complete"
+}
+
+configure_dbus_permissions() {
+  echo "Configuring DBus permissions for BlueZ..."
+
+  # Create DBus policy file
+  sudo tee /etc/dbus-1/system.d/bluetooth-user.conf > /dev/null << 'EOF'
+<!DOCTYPE busconfig PUBLIC "-//freedesktop//DTD D-BUS Bus Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/dbus/1.0/busconfig.dtd">
+<busconfig>
+  <!-- Allow users in bluetooth group to access BlueZ -->
+  <policy group="bluetooth">
+    <allow send_destination="org.bluez"/>
+    <allow send_interface="org.bluez.GattCharacteristic1"/>
+    <allow send_interface="org.bluez.GattDescriptor1"/>
+    <allow send_interface="org.bluez.LEAdvertisingManager1"/>
+    <allow send_interface="org.freedesktop.DBus.ObjectManager"/>
+    <allow send_interface="org.freedesktop.DBus.Properties"/>
+    <allow send_interface="org.bluez.Adapter1"/>
+    <allow send_interface="org.bluez.Device1"/>
+    <allow send_interface="org.bluez.AgentManager1"/>
+    <allow send_interface="org.bluez.ProfileManager1"/>
+  </policy>
+</busconfig>
+EOF
+
+  # Reload DBus and bluetooth
+  sudo systemctl reload dbus
+  sudo systemctl restart bluetooth
+
+  echo "DBus permissions configured"
 }
 
 # Step 4: Install Rustup (optional, skipped if binary used)
@@ -462,6 +495,15 @@ if [ $SKIP_BLUEZ_CONFIG -eq 0 ]; then
   echo "Done."
 else
   echo "$STR_SKIP_RE_FLAG --skip-bluez-config"
+fi
+
+echo "Step 3.25 - Configure DBus Permissions: "
+if [ $SKIP_DBUS_PERMS -eq 0 ]; then
+  echo -n "[Configuring]... "
+  configure_dbus_permissions & spinner $!
+  echo "Done."
+else
+  echo "$STR_SKIP_RE_FLAG --skip-dbus-perms"
 fi
 
 echo "Step 3.5 - Test BLE Setup: "
