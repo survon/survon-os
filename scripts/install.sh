@@ -91,6 +91,7 @@ SKIP_BLUEZ_CONFIG=0
 SKIP_BLE_TEST=0
 SKIP_DBUS_PERMS=0
 SKIP_TERMINAL_COLORS=0
+SKIP_DOWNLOAD_JUKEBOX_AUDIO=0
 
 DEFAULT_MODEL_URL="https://huggingface.co/bartowski/Phi-3-mini-4k-instruct-GGUF/resolve/main/Phi-3-mini-4k-instruct-Q3_K_S.gguf"
 DEFAULT_MODEL_NAME="phi3-mini.gguf"
@@ -113,6 +114,7 @@ for arg in "$@"; do
     --skip-bluez-config) SKIP_BLUEZ_CONFIG=1 ;;
     --skip-ble-test) SKIP_BLE_TEST=1 ;;
     --skip-terminal-colors) SKIP_TERMINAL_COLORS=1 ;;
+    --skip-download-jukebox-audio) SKIP_DOWNLOAD_JUKEBOX_AUDIO=1 ;;
 
     # unused
     --skip-ble-config) SKIP_BLE_CONFIG=1 ;;
@@ -274,7 +276,6 @@ configure_terminal_colors() {
 }
 
 # Step 6: Model selection/download/set env
-# Step 6: Model selection/download/set env
 interactive_model_selection() {
   # Create models directory in home - where the app will likely look for them
   MODEL_DIR="$HOME/bundled/models"
@@ -363,6 +364,77 @@ interactive_model_selection() {
   else
     echo "No model installed - using search-only mode"
   fi
+}
+
+# Step 6.5: Optional audio download for Jukebox
+download_jukebox_audio() {
+  AUDIO_DIR="$HOME/modules/core/big_band_mix/audio"
+
+  echo "========================================"
+  echo "   Optional: Jukebox Audio Download    "
+  echo "========================================"
+  echo ""
+  echo "The Jukebox module includes a Big Band Mix album"
+  echo "but the audio files need to be downloaded separately."
+  echo ""
+  echo "Collection: Big Band Mix (Recordings 1935-1945)"
+  echo "Source: Internet Archive (Public Domain)"
+  echo "Size: ~117MB (25 tracks)"
+  echo ""
+  echo "Download options:"
+  echo "1. Download now (~5-10 minutes)"
+  echo "2. Skip (you can download manually later)"
+  echo ""
+  read -p "Choice: " audio_choice < /dev/tty
+
+  if [ "$audio_choice" == "1" ]; then
+    echo ""
+    echo "Downloading Big Band Mix audio files..."
+    echo "This will take 5-10 minutes depending on your connection."
+
+    # Create audio directory if it doesn't exist
+    mkdir -p "$AUDIO_DIR"
+    cd "$AUDIO_DIR"
+
+    # Download the zip file
+    echo "Downloading archive..."
+    if curl -L "https://archive.org/compress/BigBandMixRecordings1935-1945/formats=VBR%20MP3&file=/BigBandMixRecordings1935-1945.zip" -o BigBandMix.zip; then
+      echo "Download complete. Extracting files..."
+
+      # Extract the files
+      if unzip -q BigBandMix.zip; then
+        # Clean up zip file
+        rm BigBandMix.zip
+
+        # Count the audio files
+        AUDIO_COUNT=$(find . -type f \( -name "*.mp3" -o -name "*.wav" -o -name "*.flac" -o -name "*.ogg" \) | wc -l)
+
+        echo "✅ Successfully extracted $AUDIO_COUNT audio files"
+        echo "   Location: $AUDIO_DIR"
+      else
+        echo "❌ Failed to extract archive. Check disk space."
+        rm -f BigBandMix.zip
+      fi
+    else
+      echo "❌ Failed to download audio files."
+      echo "   You can download them manually later using:"
+      echo "   cd $AUDIO_DIR"
+      echo "   curl -L 'https://archive.org/compress/BigBandMixRecordings1935-1945/formats=VBR%20MP3&file=/BigBandMixRecordings1935-1945.zip' -o BigBandMix.zip"
+      echo "   unzip BigBandMix.zip"
+    fi
+  elif [ "$audio_choice" == "2" ]; then
+    echo "Skipping audio download."
+    echo ""
+    echo "To download manually later, run these commands:"
+    echo "  cd $AUDIO_DIR"
+    echo "  curl -L 'https://archive.org/compress/BigBandMixRecordings1935-1945/formats=VBR%20MP3&file=/BigBandMixRecordings1935-1945.zip' -o BigBandMix.zip"
+    echo "  unzip BigBandMix.zip"
+    echo "  rm BigBandMix.zip"
+  else
+    echo "Invalid choice. Skipping audio download."
+  fi
+
+  cd $HOME
 }
 
 # Step 7: Fetch pre-built binary from GitHub releases
@@ -600,13 +672,20 @@ else
   echo "$STR_SKIP_RE_FLAG --skip-download-runtime"
 fi
 
-# TODO skipping model selection doesnt make sense unless we choose one for the user here
 echo "Step 6 - Select Survon AI Model: "
 if [ $SKIP_MODEL_SELECTION -eq 0 ]; then
   interactive_model_selection
   echo "Done."
 else
   echo "$STR_SKIP_RE_FLAG --skip-model-selection. Applying default model $MODEL_NAME"
+fi
+
+echo "Step 6.5 - Optional Jukebox Audio Download: "
+if [ $SKIP_DOWNLOAD_JUKEBOX_AUDIO -eq 0 ]; then
+  download_jukebox_audio
+  echo "Done."
+else
+  echo "$STR_SKIP_RE_FLAG --skip-download-jukebox-audio"
 fi
 
 echo "Step 7 - Fetch Pre-built Binary: "
