@@ -1,9 +1,12 @@
 #!/bin/bash
 
-# Assumptions: Run as survon (non-root); Pi OS Lite armhf (RPi 3B v1.2); repos on master (no git; use curl for tarballs/zips).
-# Flags: --skip-<step> (e.g., --skip-apt-update to skip that function).
-# Steps: Each in named function; controller downloads pre-built binary instead of building.
-# Spinner: Simple animation during non-interactive steps. No spinner for interactive steps.
+# Assumptions:
+#  - Run as survon (non-root);
+#  - Pi OS Lite armhf (RPi 3B v1.2);
+#  - repo is on master (no git; use curl for tarballs/zips)
+#
+# Flags:
+# --skip-<step> (e.g., --skip-apt-update to skip that function).
 
 set -e  # Exit on error.
 
@@ -76,13 +79,14 @@ check_installer_updates() {
 }
 
 # Parse flags (skip per step)
+SKIP_HOSTNAME=0
 SKIP_APT_UPDATE=0
 SKIP_INSTALL_DEPS=0
 SKIP_BLE_CONFIG=0
 SKIP_INSTALL_RUSTUP=0
 SKIP_DOWNLOAD_RUNTIME=0
 SKIP_MODEL_SELECTION=0
-SKIP_FETCH_BINARY=0  # New step for binary download
+SKIP_FETCH_BINARY=0
 SKIP_FETCH_SURVON_SH=0
 SKIP_SET_CRONTAB=0
 SKIP_CLEANUP=0
@@ -101,6 +105,7 @@ STR_SKIP_RE_FLAG="[Skipped]. Received flag"
 
 for arg in "$@"; do
   case $arg in
+    --skip-hostname) SKIP_HOSTNAME=1 ;;
     --skip-apt-update) SKIP_APT_UPDATE=1 ;;
     --skip-install-deps) SKIP_INSTALL_DEPS=1 ;;
     --skip-install-rustup) SKIP_INSTALL_RUSTUP=1 ;;
@@ -116,13 +121,13 @@ for arg in "$@"; do
     --skip-terminal-colors) SKIP_TERMINAL_COLORS=1 ;;
     --skip-download-jukebox-audio) SKIP_DOWNLOAD_JUKEBOX_AUDIO=1 ;;
 
-    # unused
+    # unused atm
     --skip-ble-config) SKIP_BLE_CONFIG=1 ;;
     --skip-update-check) SKIP_UPDATE_CHECK=1 ;;
   esac
 done
 
-# Spinner function (background animation while step runs; like Node spinner lib)
+# background animation while step runs
 spinner() {
   local pid=$1
   local delay=0.1
@@ -135,6 +140,25 @@ spinner() {
     printf "\b\b\b\b\b\b"
   done
   printf "    \b\b\b\b"
+}
+
+# Pre-step: set hostname
+set_hostname() {
+  echo -n "Enter hostname [default: survon]: "
+  read SURVON_HOSTNAME < /dev/tty
+  SURVON_HOSTNAME=${SURVON_HOSTNAME:-survon}
+
+  echo "Setting hostname to $SURVON_HOSTNAME..."
+  sudo hostnamectl set-hostname "$SURVON_HOSTNAME"
+  sudo sed -i "s/127.0.1.1.*/127.0.1.1\t$SURVON_HOSTNAME/" /etc/hosts
+
+  # Restart avahi-daemon if available (for .local mDNS)
+  if systemctl is-active --quiet avahi-daemon 2>/dev/null; then
+    sudo systemctl restart avahi-daemon
+    echo "Hostname set to $SURVON_HOSTNAME (accessible as $SURVON_HOSTNAME.local)"
+  else
+    echo "Hostname set to $SURVON_HOSTNAME"
+  fi
 }
 
 # Step 1: Update system
@@ -601,6 +625,14 @@ elif [ "$0" != "$HOME/install.sh" ] && [ "$0" != "bash" ]; then
   chmod +x "$HOME/install.sh"
 fi
 
+echo "Step 0 - Set Hostname: "
+if [ $SKIP_HOSTNAME -eq 0 ]; then
+  set_hostname
+  echo "Done."
+else
+  echo "$STR_SKIP_RE_FLAG --skip-hostname"
+fi
+
 echo "Step 1 - Update Unix System: "
 if [ $SKIP_APT_UPDATE -eq 0 ]; then
   echo -n "[Updating]... "
@@ -727,6 +759,8 @@ fi
 echo "=========================================="
 echo "Survon OS installed successfully!"
 echo "=========================================="
+echo ""
+echo "Your system is accessible at: $SURVON_HOSTNAME.local"
 echo ""
 echo "IMPORTANT: You need to REBOOT for BLE changes to take effect"
 echo ""
