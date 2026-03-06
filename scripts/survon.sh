@@ -8,7 +8,11 @@ while true; do
   echo "3. Update Survon Runtime"
   echo "4. Launch Survon Runtime"
   echo "5. Wasteland Module Manager"
-  echo "6. Exit"
+  echo "--- Council Seat ---"
+  echo "6. Install Council Seat"
+  echo "7. Configure Council Strategy"
+  echo "8. Launch Council Seat"
+  echo "9. Exit"
   read -p "Select: " choice
 
   case $choice in
@@ -59,7 +63,56 @@ while true; do
     5) # Module Manager
        bash /home/survon/module_manager.sh
        ;;
-    6) exit 0 ;;
+    6) # Install Council Seat
+       echo "Installing Survon Council Seat..."
+       echo ""
+       echo "Available strategies:"
+       echo "  1. librarian    - Search static knowledge (default)"
+       echo "  2. medicine    - Medical expertise"
+       echo "  3. mechanical  - Mechanical engineering"
+       echo "  4. botany      - Agriculture & plants"
+       echo "  5. veterinary  - Animal health"
+       echo "  6. building    - Construction"
+       echo "  7. survival    - Survival skills"
+       read -p "Select strategy (1-7, default 1): " strategy_choice
+       
+       case $strategy_choice in
+         2) STRATEGY="medicine" ;;
+         3) STRATEGY="mechanical" ;;
+         4) STRATEGY="botany" ;;
+         5) STRATEGY="veterinary" ;;
+         6) STRATEGY="building" ;;
+         7) STRATEGY="survival" ;;
+         *) STRATEGY="librarian" ;;
+       esac
+       
+       echo "Installing with strategy: $STRATEGY"
+       curl -sSL https://raw.githubusercontent.com/survon/survon-council-seat/master/scripts/install.sh | bash -s -- --strategy "$STRATEGY"
+       echo "Council Seat installed!"
+       ;;
+    7) # Configure Council Strategy
+       echo "Current council strategy configuration:"
+       grep -E "COUNCIL_STRATEGY|DATABASE_PATH|LOG_LEVEL" /home/survon/.bashrc 2>/dev/null || echo "No configuration found"
+       echo ""
+       echo "Available strategies:"
+       echo "  librarian, medicine, mechanical, botany, veterinary, building, survival"
+       read -p "Enter new strategy name: " new_strategy
+       if [ -n "$new_strategy" ]; then
+         sed -i "/export COUNCIL_STRATEGY=/d" /home/survon/.bashrc
+         echo "export COUNCIL_STRATEGY=$new_strategy" >> /home/survon/.bashrc
+         source /home/survon/.bashrc
+         echo "Strategy updated to: $new_strategy"
+       fi
+       ;;
+    8) # Launch Council Seat
+       cd /home/survon
+       if [ -f /usr/local/bin/survon-council-seat ]; then
+         /usr/local/bin/survon-council-seat
+       else
+         echo "Council Seat not installed. Select option 6 to install."
+       fi
+       ;;
+    9) exit 0 ;;
     *) echo "Invalid." ;;
   esac
 done
