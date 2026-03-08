@@ -42,9 +42,9 @@ while true; do
          echo "No ENV_VAR specified. Skipping."
        fi
        ;;
-    3) # Update runtime-base-rust binary from GitHub releases
+    3) # Update runtime binary from GitHub releases
        echo "Downloading latest pre-built binary from GitHub..."
-       curl -L https://github.com/survon/runtime-base-rust/releases/latest/download/runtime-base-rust \
+       curl -L https://github.com/survon/survon-runtime-base/releases/latest/download/runtime-base-rust \
          -o /tmp/runtime-base-rust
        if [ $? -eq 0 ]; then
          echo "Download success. Replacing binary..."
@@ -87,7 +87,7 @@ while true; do
        esac
        
        echo "Installing with strategy: $STRATEGY"
-       curl -sSL https://raw.githubusercontent.com/survon/survon-council-seat/master/scripts/install.sh | bash -s -- --strategy "$STRATEGY"
+        curl -sSL https://raw.githubusercontent.com/survon/survon-runtime-council-seat/master/scripts/install.sh | bash -s -- --strategy "$STRATEGY"
        echo "Council Seat installed!"
        ;;
     7) # Configure Council Strategy
