@@ -1,18 +1,29 @@
 #!/bin/bash
 
+RUNTIME_BINARY="survon-runtime-base"
+COUNCIL_BINARY="survon-runtime-council-seat"
+RUNTIME_URL="https://github.com/survon/survon-runtime-base/releases/latest/download/$RUNTIME_BINARY"
+COUNCIL_URL="https://github.com/survon/survon-runtime-council-seat/releases/latest/download/$COUNCIL_BINARY"
+
 # Menu loop
 while true; do
   echo "Survon OS Menu"
   echo "1. Re-install Latest Survon OS"
   echo "2. Manage configs/env vars"
-  echo "3. Update Survon Runtime"
-  echo "4. Launch Survon Runtime"
-  echo "5. Wasteland Module Manager"
+  echo ""
+  echo "--- Survon Runtime Base ---"
+  echo "3. Install/Update Survon Runtime Base"
+  echo "4. Launch Survon Runtime Base"
+  echo ""
   echo "--- Council Seat ---"
-  echo "6. Install Council Seat"
+  echo "5. Install Council Seat"
+  echo "6. Update Council Seat"
   echo "7. Configure Council Strategy"
   echo "8. Launch Council Seat"
-  echo "9. Exit"
+  echo ""
+  echo "--- Other ---"
+  echo "9. Wasteland Module Manager"
+  echo "10. Exit"
   read -p "Select: " choice
 
   case $choice in
@@ -42,28 +53,32 @@ while true; do
          echo "No ENV_VAR specified. Skipping."
        fi
        ;;
-    3) # Update runtime binary from GitHub releases
-       echo "Downloading latest pre-built binary from GitHub..."
-       curl -L https://github.com/survon/survon-runtime-base/releases/latest/download/runtime-base-rust \
-         -o /tmp/runtime-base-rust
+    3) # Install/Update Runtime Base
+       echo "Downloading latest $RUNTIME_BINARY..."
+       curl -L "$RUNTIME_URL" -o /tmp/$RUNTIME_BINARY
        if [ $? -eq 0 ]; then
-         echo "Download success. Replacing binary..."
-         sudo mv /tmp/runtime-base-rust /usr/local/bin/runtime-base-rust
-         sudo chmod +x /usr/local/bin/runtime-base-rust
-         echo "Binary updated successfully."
+         echo "Download success. Installing..."
+         sudo mv /tmp/$RUNTIME_BINARY /usr/local/bin/$RUNTIME_BINARY
+         sudo chmod +x /usr/local/bin/$RUNTIME_BINARY
+         echo "$RUNTIME_BINARY installed successfully."
+         
+         # Set env vars if not already set
+         if ! grep -q "export RUNTIME_NAME=" ~/.bashrc 2>/dev/null; then
+           echo "export RUNTIME_NAME=base" >> ~/.bashrc
+         fi
        else
          echo "Download failed. Check internet connection and GitHub releases."
        fi
        ;;
-    4) # Launch Rust TUI
-       # Change to home directory where models are expected
+    4) # Launch Runtime Base
        cd /home/survon
-       /usr/local/bin/runtime-base-rust
+       if [ -f /usr/local/bin/$RUNTIME_BINARY ]; then
+         /usr/local/bin/$RUNTIME_BINARY
+       else
+         echo "Runtime not installed. Select option 3 to install."
+       fi
        ;;
-    5) # Module Manager
-       bash /home/survon/module_manager.sh
-       ;;
-    6) # Install Council Seat
+    5) # Install Council Seat
        echo "Installing Survon Council Seat..."
        echo ""
        echo "Available strategies:"
@@ -87,8 +102,20 @@ while true; do
        esac
        
        echo "Installing with strategy: $STRATEGY"
-        curl -sSL https://raw.githubusercontent.com/survon/survon-runtime-council-seat/master/scripts/install.sh | bash -s -- --strategy "$STRATEGY"
+       curl -sSL https://raw.githubusercontent.com/survon/survon-runtime-council-seat/master/scripts/install.sh | bash -s -- --strategy "$STRATEGY"
        echo "Council Seat installed!"
+       ;;
+    6) # Update Council Seat
+       echo "Downloading latest $COUNCIL_BINARY..."
+       curl -L "$COUNCIL_URL" -o /tmp/$COUNCIL_BINARY
+       if [ $? -eq 0 ]; then
+         echo "Download success. Installing..."
+         sudo mv /tmp/$COUNCIL_BINARY /usr/local/bin/$COUNCIL_BINARY
+         sudo chmod +x /usr/local/bin/$COUNCIL_BINARY
+         echo "$COUNCIL_BINARY updated successfully."
+       else
+         echo "Download failed. Check internet connection and GitHub releases."
+       fi
        ;;
     7) # Configure Council Strategy
        echo "Current council strategy configuration:"
@@ -106,13 +133,16 @@ while true; do
        ;;
     8) # Launch Council Seat
        cd /home/survon
-       if [ -f /usr/local/bin/survon-council-seat ]; then
-         /usr/local/bin/survon-council-seat
+       if [ -f /usr/local/bin/$COUNCIL_BINARY ]; then
+         /usr/local/bin/$COUNCIL_BINARY
        else
-         echo "Council Seat not installed. Select option 6 to install."
+         echo "Council Seat not installed. Select option 5 to install."
        fi
        ;;
-    9) exit 0 ;;
+    9) # Module Manager
+       bash /home/survon/module_manager.sh
+       ;;
+    10) exit 0 ;;
     *) echo "Invalid." ;;
   esac
 done
